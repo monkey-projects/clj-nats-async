@@ -1,0 +1,48 @@
+{:deps {io.nats/jnats {:mvn/version "2.21.0"}
+        manifold/manifold {:mvn/version "0.4.3"}
+        org.slf4j/jul-to-slf4j {:mvn/version "2.1.0-alpha1"}}
+
+ :paths ["src"]
+
+ :aliases
+ {:dev
+  {:extra-paths ["env/dev" "dev-resources"]}
+
+  ;; clj -X:test
+  :test
+  {:extra-paths ["test" "dev-resources"]
+   :extra-deps {ch.qos.logback/logback-classic {:mvn/version "1.5.18"}
+                com.monkeyprojects/build {:mvn/version "0.3.1"}
+                yogthos/config {:mvn/version "1.2.1"}}
+   :exec-fn monkey.test/all}
+
+  ;; clj -X:test:watch
+  :watch
+  {:exec-fn monkey.test/watch}
+
+  ;; clj -X:test:junit
+  :junit
+  {:exec-fn monkey.test/junit}
+
+  ;; clj -X:jar
+  :jar
+  {:extra-deps {com.monkeyprojects/build {:mvn/version "0.3.1"}}
+   :exec-fn monkey.build/jar
+   :exec-args {:jar "target/nats-async.jar"
+               :lib com.monkeyprojects/nats-async
+               :version [[:env "LIB_VERSION"] "1.3.0-SNAPSHOT"]
+               :scm
+               {:url "https://github.com/monkey-projects/clj-nats-async.git"}
+               :pom-data
+               [[:licenses
+                 [:license
+                  [:name "Apache v2.0"]
+                  [:url "https://www.apache.org/licenses/LICENSE-2.0.html"]]]]}}
+
+  ;; clj -X:jar:install
+  :install
+  {:exec-fn monkey.build/jar+install}
+
+  ;; clj -X:jar:publish
+  :publish
+  {:exec-fn monkey.build/jar+deploy}}}

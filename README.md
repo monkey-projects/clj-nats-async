@@ -2,7 +2,7 @@
 
 an async clojure NATS client, wrapping jnats
 
-creates Manifold streams on a NATS subject for :
+creates [Manifold](https://github.com/clj-commons/manifold) streams on a NATS subject for :
 
 - publish only (a sink-only stream)
 - subscribe only (a source-only stream)
@@ -10,18 +10,20 @@ creates Manifold streams on a NATS subject for :
 
 ## Usage
 
-    (require '[clj-nats-async.core :as nats])
+```clojure
+(require '[clj-nats-async.core :as nats])
 
-    (def n (nats/create-nats "nats://localhost:4222"))
+(def n (nats/create-nats "nats://localhost:4222"))
 
-    (def s (nats/pubsub n "foo"))
+(def s (nats/pubsub n "foo"))
 
-    (manifold.stream/put! s "boo")
+(manifold.stream/put! s "boo")
 
-    (def msg (manifold.stream/take! s))
-    (nats/msg-body @msg) ;; => "boo"
+(def msg (manifold.stream/take! s))
+(nats/msg-body @msg) ;; => "boo"
 
-    (.close s)
+(.close s)
+```
 
 ## License
 

@@ -3,16 +3,46 @@
             [clojure.tools.logging :as log]
             [clojure.edn :as edn]
             [manifold.stream :as s])
-  (:import [io.nats.client ConnectionFactory Connection MessageHandler Message]))
+  (:import [io.nats.client Options$Builder Nats Connection MessageHandler Message]))
 
-(defn create-nats
-  "creates a Nats connection, returning a Nats object
-   - urls : nats server urls, either a seq or comma separated"
-  [& urls]
-  (let [servers (flatten (map #(str/split % #",") urls))
-        j-servers (into-array String servers)
-        cf (ConnectionFactory. j-servers)]
-    (.createConnection cf)))
+(def connection? (partial instance? Connection))
+
+(defn- parse-urls [urls]
+  (->> urls
+       (map #(str/split % #","))
+       (flatten)))
+
+(defn- opts->servers [[f :as opts]]
+  (->> (cond
+         (map? f) (:urls f)
+         (sequential? opts) opts
+         (string? f) (parse-urls f)
+         :else (throw (ex-info "Unknown options format" {:options opts})))
+       (into-array String)))
+
+(defn- apply-conf [opts conf]
+  (let [appliers {:secure? (fn [o _] (.secure o))
+                  :token #(.token %1 (.toCharArray %2))
+                  :auth-handler #(.authHandler %1 %2)
+                  :credential-path #(.credentialPath %1 %2)
+                  :verbose? (fn [o _] (.verbose o))}]
+    (reduce-kv (fn [o k v]
+                 (let [a (get appliers k)]
+                   (cond-> o
+                     a (a v))))
+               opts
+               conf)))
+
+(defn ^Connection create-nats
+  "Creates a Nats connection, returning a Nats object.  Opts is a map containing
+   the `:urls` and possible other values.  For backwards compatibility, this can
+   also be a list of urls, or a comma separated url string."
+  [& opts]
+  (let [server-opts (-> (Options$Builder.)
+                        (.servers (opts->servers opts))
+                        (apply-conf (first opts))
+                        (.build))]
+    (Nats/connect server-opts)))
 
 (defprotocol INatsMessage
   (msg-body [_]))
@@ -24,16 +54,22 @@
      (String. (.getData nats-message)
               "UTF-8"))))
 
+(defn- ->message-handler [stream]
+  (reify
+    MessageHandler
+    (onMessage [_ m]
+      (s/put! stream (map->NatsMessage {:nats-message m})))))
+
 (defn ^:private create-nats-subscription
   [nats subject {:keys [queue] :as opts} stream]
-  (.subscribeAsync
-   nats
-   subject
-   queue
-   (reify
-     MessageHandler
-     (onMessage [_ m]
-       (s/put! stream (map->NatsMessage {:nats-message m}))))))
+  (cond-> (.createDispatcher nats)
+    queue (.subscribe subject queue (->message-handler stream))
+    (not queue) (.subscribe subject (->message-handler stream))))
+
+(defn- unsubscribe [sub]
+  (fn []
+    (log/debug "Closing NATS subscription:" sub)
+    (.unsubscribe (.getDispatcher sub) sub)))
 
 (defn subscribe
   "returns a a Manifold source-only stream of INatsMessages from a NATS subject.
@@ -43,10 +79,7 @@
    (let [stream (s/stream)
          source (s/source-only stream)
          nats-subscription (create-nats-subscription nats subject opts stream)]
-     (s/on-closed stream
-                  (fn []
-                    (log/info "closing NATS subscription: " subject)
-                    (.close nats-subscription)))
+     (s/on-closed stream #(unsubscribe nats-subscription))
      source)))
 
 (defn publish
@@ -88,6 +121,6 @@
 
      (s/consume (fn [body] (publish nats subject body)) pub-stream)
 
-     (s/on-closed sub-stream (fn [] (.close nats-subscription)))
+     (s/on-closed sub-stream #(unsubscribe nats-subscription))
 
      (s/splice pub-stream sub-stream))))
