@@ -11,3 +11,4 @@ pom.xml.asc
 .hg/
 .cpcache/
 /dev-resources
+/junit.xml
