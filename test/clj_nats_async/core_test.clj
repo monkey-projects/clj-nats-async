@@ -1,16 +1,28 @@
 (ns clj-nats-async.core-test
   (:require [clojure.test :refer [deftest testing is]]
+            [babashka.fs :as fs]
             [clj-nats-async.core :as sut]
             [config.core :as cc]
             [manifold.stream :as ms]))
 
+(defn- as-file
+  "If `creds` points to a file, returns it.  Otherwise writes the contents to a temp
+   file, which will be deleted on exit."
+  [creds]
+  (if (fs/exists? creds)
+    creds
+    (let [t (fs/create-temp-file)]
+      (spit (fs/file t) creds)
+      (str (fs/delete-on-exit t)))))
+
 (def url (:nats-url cc/env))
+(def creds (as-file (:nats-creds cc/env)))
 
 (deftest integration-test
   (let [conn (sut/create-nats {:urls [url]
                                :secure? true
                                :verbose? true
-                               :credential-path (:nats-creds cc/env)})]
+                               :credential-path creds})]
     (testing "can connect to server"
       (is (sut/connection? conn)))
 
