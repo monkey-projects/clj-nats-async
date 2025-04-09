@@ -1,9 +1,10 @@
 (ns clj-nats-async.core
-  (:require [clojure.string :as str]
+  (:require [clojure
+             [edn :as edn]
+             [string :as str]]
             [clojure.tools.logging :as log]
-            [clojure.edn :as edn]
             [manifold.stream :as s])
-  (:import [io.nats.client Options$Builder Nats Connection MessageHandler Message]))
+  (:import (io.nats.client Connection MessageHandler Nats Options$Builder)))
 
 (def connection? (partial instance? Connection))
 
@@ -12,19 +13,20 @@
        (map #(str/split % #","))
        (flatten)))
 
-(defn- opts->servers [[f :as opts]]
-  (->> (cond
-         (map? f) (:urls f)
-         (sequential? opts) opts
-         (string? f) (parse-urls f)
-         :else (throw (ex-info "Unknown options format" {:options opts})))
-       (into-array String)))
+(defn- opts->servers [opts conf]
+  (let [urls (->> (if (sequential? conf)
+                    (parse-urls conf)
+                    (throw (ex-info "Unknown options format" {:options conf})))
+                  (into-array String))]
+    (.servers opts urls)))
 
 (defn- apply-conf [opts conf]
-  (let [appliers {:secure? (fn [o _] (.secure o))
+  (let [appliers {:urls #(.servers %1 (into-array String %2))
+                  :secure? (fn [o _] (.secure o))
                   :token #(.token %1 (.toCharArray %2))
                   :auth-handler #(.authHandler %1 %2)
                   :credential-path #(.credentialPath %1 %2)
+                  :static-creds #(.authHandler %1 (Nats/staticCredentials (.getBytes %2)))
                   :verbose? (fn [o _] (.verbose o))}]
     (reduce-kv (fn [o k v]
                  (let [a (get appliers k)]
@@ -33,16 +35,20 @@
                opts
                conf)))
 
+(defn make-options
+  "Creates a Nats options object using the given configuration"
+  [[m :as conf]]
+  (cond-> (Options$Builder.)
+    (not (map? m)) (opts->servers conf)
+    (map? m) (apply-conf m)
+    true (.build)))
+
 (defn ^Connection create-nats
   "Creates a Nats connection, returning a Nats object.  Opts is a map containing
    the `:urls` and possible other values.  For backwards compatibility, this can
    also be a list of urls, or a comma separated url string."
   [& opts]
-  (let [server-opts (-> (Options$Builder.)
-                        (.servers (opts->servers opts))
-                        (apply-conf (first opts))
-                        (.build))]
-    (Nats/connect server-opts)))
+  (Nats/connect (make-options opts)))
 
 (defprotocol INatsMessage
   (msg-body [_]))
